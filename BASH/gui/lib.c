@@ -19,6 +19,17 @@
         a = b, b = c;                           \
     }
 
+void prepend (char *s, char *t)
+{
+    size_t len = strlen(t);
+    size_t i;
+
+    memmove(s + len, s, strlen(s) + 1);
+
+    for (i = 0; i < len; i++)
+        s[i] = t[i];
+}
+
 char* get_path(const char *file)
 {
     FILE *fp;
@@ -45,6 +56,8 @@ char* get_path(const char *file)
 
     path = (char *)malloc(len);
     strcpy(path, result);
+
+    prepend(path, "file://");
 
     return path;
 }

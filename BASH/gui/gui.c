@@ -1,11 +1,14 @@
 #include <string.h>
 #include <gtk/gtk.h>
+#include <cairo.h>
+#include <poppler.h>
+#include <math.h>
 
 #include "lib.h"
 
 #define TITLE_TEXT      "Manga GUI"
 
-#define DOWNLOADS_PATH  "./Downloads/"
+#define DOWNLOADS_PATH  "../../Downloads/"
 
 #define DEFAULT_WIDTH   1024
 #define DEFAULT_HEIGHT  680
@@ -27,19 +30,79 @@ enum
 
 
 GtkBuilder *builder;
+GtkWidget *drawArea;
+cairo_surface_t *surface = NULL;
 
+static void clear_surface(void)
+{
+    cairo_t *cr;
+
+    cr = cairo_create (surface);
+
+    cairo_set_source_rgb (cr, 1, 1, 1);
+    cairo_paint(cr);
+
+    cairo_destroy(cr);
+}
+
+static gboolean drawArea_configure (GtkWidget *widget, GdkEventConfigure *event, gpointer data)
+{
+    if(surface)
+        cairo_surface_destroy (surface);
+    
+    surface = gdk_window_create_similar_surface (gtk_widget_get_window (widget),
+                                                                                    CAIRO_CONTENT_COLOR,
+                                                                                    gtk_widget_get_allocated_width (widget),
+                                                                                    gtk_widget_get_allocated_height (widget));
+    
+    clear_surface();
+
+    return TRUE;
+}
+
+static gboolean drawArea_draw (GtkWidget *widget, cairo_t *cr, gpointer user_data)
+{
+    cairo_set_source_surface (cr, surface, 0, 0);
+    cairo_paint (cr);
+
+    return FALSE;
+}
 
 static void manga_tree_selection_changed(GtkTreeSelection *selection, gpointer data)
 {
+    PopplerPage *ppage;
+    PopplerDocument *document;
     GtkTreeIter iter;
     GtkTreeModel *model;
     gchar *path;
+    int current_page=0, total_pages=0, w, h;
+    double width, height;
+    cairo_t *cr;
 
     if (gtk_tree_selection_get_selected(selection, &model, &iter))
     {
         gtk_tree_model_get(model, &iter, MANGA_PATH, &path, -1);
 
-        gtk_label_set_text(GTK_LABEL(data), path);
+        //TODO: This area needs fixing
+        GError *ge = NULL;
+        document = poppler_document_new_from_file (&(path[0]), NULL, &ge);
+        printf ("Unable to read file: %s\n", ge->message);
+        if(document == NULL)
+            printf("\n--%s--\n", path);
+
+        total_pages = poppler_document_get_n_pages(document);
+        
+        ppage = poppler_document_get_page(document, 0);
+        poppler_page_get_size (ppage, &width, &height);
+        w = (int) (1 + width);
+        h = (int) (1 + height);
+        cairo_surface_destroy(surface);
+        surface = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, w, h);
+        cr = cairo_create (surface);
+        poppler_page_render (ppage, cr);
+        cairo_destroy(cr);
+        gtk_widget_set_size_request (drawArea, w, h);
+        gtk_widget_queue_draw (drawArea);
 
         g_free(path);
     }
@@ -186,7 +249,6 @@ int main(int argc, char **argv)
     GtkWidget *view;
     GtkWidget *scrollWindow;
     GtkWidget *box, *content_box;
-    GtkWidget *label;
     GtkWidget *quit_button;
     GtkWidget *download_button;
     GtkTreeSelection *select;
@@ -205,7 +267,9 @@ int main(int argc, char **argv)
 
     box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
-    label = gtk_label_new("Manga PDF will be viewed here");
+    drawArea = gtk_drawing_area_new();
+    g_signal_connect (GTK_DRAWING_AREA(drawArea), "draw", G_CALLBACK(drawArea_draw), NULL);
+    g_signal_connect (GTK_DRAWING_AREA(drawArea), "configure-event", G_CALLBACK(drawArea_configure), NULL);
 
     view = create_manga_tree_view();
 
@@ -213,7 +277,7 @@ int main(int argc, char **argv)
     gtk_tree_selection_set_mode(select, GTK_SELECTION_SINGLE);
     g_signal_connect(select, "changed",
                      G_CALLBACK(manga_tree_selection_changed),
-                     label);
+                     drawArea);
 
     scrollWindow = gtk_scrolled_window_new(NULL, NULL);
     gtk_container_add(GTK_CONTAINER(scrollWindow), view);
@@ -223,7 +287,7 @@ int main(int argc, char **argv)
     gtk_widget_show(scrollWindow);
 
     scrollWindow = gtk_scrolled_window_new(NULL, NULL);
-    gtk_container_add(GTK_CONTAINER(scrollWindow), label);
+    gtk_container_add(GTK_CONTAINER(scrollWindow), drawArea);
     gtk_widget_set_size_request(scrollWindow, MIN_PDF_WIDTH, MIN_PDF_HEIGHT);
     gtk_box_pack_start(GTK_BOX(box), scrollWindow, TRUE, TRUE, 0);
 

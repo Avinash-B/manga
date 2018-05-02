@@ -105,7 +105,7 @@ do
         if [ "$x" != "" ]; then
         nautilus $path
 	else
-	gnome-open chap$chapno.pdf	
- 	rm -rf $chap
-        fi
+        xdg-open chap$chapno.pdf
+        rm -rf $chap
+    fi
 done
